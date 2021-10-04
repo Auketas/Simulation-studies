@@ -1,0 +1,130 @@
+import numpy as np
+from scipy.stats import bernoulli
+import matplotlib.pyplot as plt
+
+def modelRidge(l, X, y):
+    #  number of columns in matrix of X including intercept
+    p = X.shape[1]
+    #  Identity matrix of dimension compatible with our X_intercept Matrix
+    I = np.identity(p)
+    #  set first 1 on the diagonal to zero so as not to include a bias term for
+    #  the intercept
+    I[0, 0] = 0
+    # We create a bias term corresponding to alpha for each column of X not
+    # including the intercept
+    Inew = l * I
+    param = np.linalg.inv(X.T.dot(
+              X) + Inew).dot(X.T).dot(y)
+    return param
+
+
+def modelOLS(X, y):
+    param = np.linalg.inv(X.T.dot(X)).dot(X.T).dot(y) #  PLEASE COMMENT OUT WHAT THIS LINE DOES
+    return param
+
+# GENERATE 100 OBSERVATIONS USING 30 REGRESSORS, 25 OF WHICH ARE NOISE
+def generate_data_1():
+    # Generate one binary regressor
+    X1 = bernoulli.rvs(0.5,size=100)
+    #  GENERATE REGRESSORS USING A NORMAL WITH MEAN ZERO AND VARIANCE 1
+    X2 = np.random.normal(loc=0, scale=1, size=(100, 29))
+    #Combine regressors into one X matrix
+    X = np.column_stack((X1,X2))
+    # RESIDUAL NORMALLY DISTRIBUTED WITH MEAN ZERO AND VARIANCE ONE
+    eps = np.random.normal(loc=0, scale=1, size=100)
+    # PLEASE COMMENT OUT WHAT THIS LINE DOES
+    y = np.sum(5*X[:, 0:5], axis=1) + eps
+    return X, y
+
+
+# GENERATE 100 OBSERVATIONS USING FIVE REGRESSORS
+def generate_data_2():
+    X1 = bernoulli.rvs(0.5,size=100)
+    X2 = np.random.normal(loc=0, scale=1, size=(100, 4))
+    X = np.column_stack((X1,X2))
+    eps = np.random.normal(loc=0, scale=1, size=100)
+    y = np.sum(5*X, axis=1) + eps
+    return X, y
+
+#  Generate 100 observations where the value of epsilon depends on the regressors
+def generate_data_3():
+    X2 = np.random.normal(loc=0, scale=1, size=(100, 4))
+    eps = np.random.normal(loc=0, scale=1, size=100)
+    epsrange = max(eps)-min(eps)
+    epsnew = (eps-min(eps))/epsrange
+    X1 = bernoulli.rvs(epsnew,size=100)
+    X = np.column_stack((X1,X2))
+    y = np.sum(5*X, axis=1) + eps
+    return X, y
+    
+    RidgeDGP1l1, RidgeDGP1l2, RidgeDGP1l3, RidgeDGP2l1, RidgeDGP2l2, RidgeDGP2l3, RidgeDGP3l1, RidgeDGP3l2, RidgeDGP3l3 = np.zeros((9,500, 1))
+
+
+OLSDGP1, OLSDGP2, OLSDGP3 = np.zeros((3,500, 1))
+
+#  Iterate over number of experiments (500)
+for i in range(500):
+
+    if i % 10 == 0:
+        print(i)
+    #Generate data acccording to data-generating process 1    
+    X, y = fc.generate_data_1()
+    #Estimate OLS for data-generating process 1 and store estimates
+    paramOLS = fc.modelOLS(X, y)
+    OLSDGP1[i, :] = paramOLS[0]
+    #Estimate Ridge regression with different lambdas for data-generating process 1 and store estimates
+    paramRidge1 = fc.modelRidge(0.5, X, y)
+    RidgeDGP1l1[i, :] = paramRidge1[0]
+    paramRidge2 = fc.modelRidge(1, X, y)
+    RidgeDGP1l2[i, :] = paramRidge2[0]
+    paramRidge3 = fc.modelRidge(2, X, y)
+    RidgeDGP1l3[i, :] = paramRidge3[0]
+
+    #Generate data ccording to data-generating process 2
+    X, y = fc.generate_data_2()
+    #Estimate OLS for data-generating process 2 and store estimates
+    paramOLS = fc.modelOLS(X, y)
+    OLSDGP2[i, :] = paramOLS[0]
+    #Estimate Ridge regression with different lambdas for data-generating process 2 and store estimates
+    paramRidge1 = fc.modelRidge(0.5, X, y)
+    RidgeDGP2l1[i, :] = paramRidge1[0]
+    paramRidge2 = fc.modelRidge(1, X, y)
+    RidgeDGP2l2[i, :] = paramRidge2[0]
+    paramRidge3 = fc.modelRidge(2, X, y)
+    RidgeDGP2l3[i, :] = paramRidge3[0]
+
+    #Generate data according to data-generating process 3
+    X, y = fc.generate_data_3()
+    #Estimate OLS for data-generating process 3 and store estimates
+    paramOLS = fc.modelOLS(X, y)
+    OLSDGP3[i, :] = paramOLS[0]
+    #Estimate Ridge regression with different lambdas for data-generating process 3 and store estimates
+    paramRidge1 = fc.modelRidge(0.5, X, y)
+    RidgeDGP3l1[i, :] = paramRidge1[0]
+    paramRidge2 = fc.modelRidge(1, X, y)
+    RidgeDGP3l2[i, :] = paramRidge2[0]
+    paramRidge3 = fc.modelRidge(2, X, y)
+    RidgeDGP3l3[i, :] = paramRidge3[0]
+
+
+matrixlist = [OLSDGP1, OLSDGP2, OLSDGP3, RidgeDGP1l1, RidgeDGP2l1, RidgeDGP3l1, RidgeDGP1l2, RidgeDGP2l2, RidgeDGP3l2, RidgeDGP1l3, RidgeDGP2l3, RidgeDGP3l3]
+namelist = ["Coefficients OLS DGP 1", 
+            "Coefficients OLS DGP 2", 
+            "Coefficients OLS DGP 3", 
+            "Coefficients Ridge lambda = 0.5 DGP 1",
+            "Coefficients Ridge lambda = 0.5 DGP 2",
+            "Coefficients Ridge lambda = 0.5 DGP 3",
+            "Coefficients Ridge lambda = 1 DGP 1",
+            "Coefficients Ridge lambda = 1 DGP 2",
+            "Coefficients Ridge lambda = 1 DGP 3",
+            "Coefficients Ridge lambda = 2 DGP 1",
+            "Coefficients Ridge lambda = 2 DGP 2",
+            "Coefficients Ridge lambda = 2 DGP 3"]
+
+for matrix in matrixlist:
+    print(np.average(np.square(matrix-5)))
+
+for i in range(len(matrixlist)):
+    plt.hist(np.average(matrixlist[i],axis=1),bins=10)
+    plt.title(namelist[i])
+    plt.show()

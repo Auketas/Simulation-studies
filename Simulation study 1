@@ -1,0 +1,246 @@
+library(abind)
+library(flexmix)
+library(testit)
+#Simulate data
+resultskmeans <- array(0,c(3,2,3,3,500))
+resultshierarchical <- array(0,c(3,2,3,3,500))
+resultsmixture <- array(0,c(3,2,3,3,500))
+resultskmeanspergroup <- array(0,c(3,2,3,3,500))
+resultshierarchicalpergroup <- array(0,c(3,2,3,3,500))
+resultsmixturepergroup <- array(0,c(3,2,3,3,500))
+G <- 4
+N <- 100
+
+#Number of time periods
+Tvec <- c(10,20,50)
+#Inclusion of individual effects
+Ivec <- c(TRUE,FALSE)
+#Group composition, G is number of groups and N number of observations
+compvec <- matrix(c(25,25,25,25,40,30,20,10,60,25,10,5),nrow=4,ncol=3)
+#Factor for group similarity
+deltavec <- c(0.5,1,2)
+
+simulatedata <- function(T,I,comp,delta){
+  N <- sum(comp)
+  if(I == TRUE){
+    K <- 6
+  } else{
+    K <- 5
+  }
+  k <- 5
+  #G <- length(comp)
+  #N <- sum(comp)
+  #Construct vector with true group assignemtn
+  truegroups <- rep(0,N)
+  count <- 1
+  for(i in 1:G){
+    truegroups[count:(count+comp[i]-1)] <- i
+    count <- count+comp[i]
+  }
+  #Construct X matrix with random normally distributed variables of size (N,K,T)
+  if(I == TRUE){
+    indeffect <- matrix(rep(rnorm(N),T),nrow=N)
+  }
+  #groupeffects <- rnorm(G)
+  #groupeffectsvec <- groupeffects[truegroups]
+  #groupeffect <- matrix(rep(groupeffectsvec,T),nrow=N)
+  X <- array(rnorm(N*K*T,mean=0,sd=1),c(N,k,T))
+  for(i in 1:(k)){
+    for(t in 2:T){
+      X[,i,t] <- 0.5*X[,i,(t-1)] + rnorm(N)
+    }
+  }
+  if(I==TRUE){
+    X <- abind(indeffect,X,along=2)
+  }
+  #else{ 
+  #X <- abind(groupeffect,X,along=2)
+  #}
+  #Construct beta matrix of size (G,K) for each group i in 1-4 the parameters are normally distributed with mean i and sd 0.5
+  beta <- matrix(0,nrow=G,ncol=K)
+
+  for(i in 1:length(comp)){
+    beta[i,] <- delta*i
+  }
+
+  #Construct y matrix with outcomes of size (N,T)
+  y <- matrix(0,nrow=N,ncol=T)
+  for(i in 1:T){
+    rowcount <- 1
+    for(j in 1:G){
+      #For each group G fill the rows of y belonging to that group by multiplying regressors of those observations with parameters belonging to that group
+      y[rowcount:(rowcount+comp[j]-1),i] <- X[rowcount:(rowcount+comp[j]-1),,i]%*%beta[j,]
+      rowcount <- rowcount+comp[j]
+    }
+  }
+  if(I==TRUE){
+    y <- t(diff(t(y)))
+    X <- X[,,1:(T-1)]
+  }
+  truepar <- truegroups*delta
+  truepar <- matrix(truepar, nrow=length(truepar),ncol=K)
+  result <- list(X=X,y=y,truegroups=truegroups,K=K,truepar=truepar)
+  return(result)
+}
+#Define matrices to save group assignment, beta estimates per group and residuals for each observation
+Kmeans <- function(X,y,N,G,K,maxit){
+  K <- dim(X)[2]
+  prevgroups <- rep(0,N)
+  groups <- sample(1:G,N,replace=TRUE)
+  resid <- matrix(0,N,G)
+  count <- 0
+  while(identical(prevgroups,groups) == FALSE&count<maxit){
+    #print(dim(resid))
+    count <- count+1
+    if(count == maxit-1){
+      print("maximum number of iterations achieved")
+    }
+    for(i in 1:G){
+      if(sum(groups==i) != 0){
+      #In each group run linear model using all observations belonging to that group
+      if(K==5){
+        #cat(dim(y[groups==i,])[1], "observations in group ", i)
+        model <- lm(as.vector(y[groups==i,]) ~ as.vector(X[groups==i,1,]) + as.vector(X[groups==i,2,]) + as.vector(X[groups==i,3,]) + as.vector(X[groups==i,4,]) + as.vector(X[groups==i,5,]) - 1)
+        resid[,i] <- rowSums((y-(X[,1,]*model$coefficients[1]+X[,2,]*model$coefficients[2]+X[,3,]*model$coefficients[3]+X[,4,]*model$coefficients[4]+X[,5,]*model$coefficients[5]))^2)
+      }
+      else{
+        model <- lm(as.vector(y[groups==i,]) ~ as.vector(X[groups==i,1,]) + as.vector(X[groups==i,2,]) + as.vector(X[groups==i,3,]) + as.vector(X[groups==i,4,]) + as.vector(X[groups==i,5,]) + as.vector(X[groups==i,6,]) - 1)
+        resid[,i] <- rowSums((y-(X[,1,]*model$coefficients[1]+X[,2,]*model$coefficients[2]+X[,3,]*model$coefficients[3]+X[,4,]*model$coefficients[4]+X[,5,]*model$coefficients[5]+X[,6,]*model$coefficients[6]))^2)
+      }
+      #Save sum of residuals over 50 time periods in resid matrix
+      #resid[,i] <- y-predict(model,X)
+      }
+    }
+    prevgroups <- groups
+    #centers <- rep(0,G)
+    #for(i in 1:G){
+    #  centers[i] <- mean(resid[groups==i])
+    #}
+  
+    for(j in 1:N){
+      groups[j] <- which.min(resid[j,])
+    }
+  }
+return(groups)
+}
+
+
+hierarchical <- function(X,y,N,G,K){
+  T <- ncol(y)
+  parameters <- matrix(0,N,(K+1))
+  for(i in 1:N){
+    ytemp <- y[i,]
+    xtemp <- X[i,1:K,1:T]
+    tempmodel <- lm(ytemp~t(xtemp))
+    parameters[i,] <- tempmodel$coefficients
+  }
+  parameters_dist <- dist(parameters)
+  clust <- hclust(parameters_dist)
+  groups <- cutree(clust,G)
+  return(groups)
+}
+
+
+mixture <- function(X,y,N,G,K){
+  T <- ncol(y)
+  ytemp <- as.vector(t(y))
+  Xtemp <- matrix(aperm(X,c(3,1,2)),N*T,K)
+  id <- rep(c(1:N),each=T)
+  mixt <- flexmix(ytemp~Xtemp | id, k=G)
+  groupstemp <- clusters(mixt)
+  groups <- groupstemp[1:N*T]
+  return(groups)
+}
+
+accuracy <- function(true,pred){
+  G <- max(true)
+  count <- 0
+  for(g in 1:G){
+    count <- count+max(table(pred[true==g]))
+  }
+  acc <- count/length(true)
+  return(acc)
+}
+
+accuracypergroup <- function(true,pred){
+  G <- max(true)
+  acc <- rep(0,G)
+  for(g in 1:G){
+    acc[g] <- max(table(pred[true==g]))/length(true[true==g])
+  }
+  avgacc <- mean(acc)
+  return(avgacc)
+}
+
+parametersacc <- function(true,pred){
+  assert(dim(true)==dim(pred))
+  sqdif <- (true-pred)^2
+  MSE <- sum(sqdif)
+  return(MSE)
+}
+
+
+results <- array(0,c(6,5,5))
+nvec <- c(10,100,500,1000,5000)
+for(a in 1:6){
+  for(b in 1:5){
+    for(i in 1:5){
+      N <- nvec[b]
+      data <- simulatedata(Tvec[a],FALSE,1,nvec[b])
+      X <- data$X
+      y <- data$y
+      truegroups <- data$truegroups
+      K <- data$K
+      kmeansgroups <- 0
+      count <- 0
+      kmeansgroups <- Kmeans(X,y,N,G,K,maxit=150)
+      #while(kmeansgroups == 0&count<100){
+      #  try(kmeansgroups <- Kmeans(X,y,N,G,K,maxit=150),silent=TRUE)
+      #  count <- count+1
+      results[a,b,i] <-  accuracy(truegroups,kmeansgroups)
+      #}
+    }
+  }
+}
+for(a in 1:3){
+  for(b in 1:2){
+    for(c in 1:3){
+      for(d in 1:3){
+        cat("a is:",a,"b is:",b,"c is:",c,"d is",d)
+        for(i in 1:5){
+          print(i)
+          data <- simulatedata(Tvec[a],Ivec[b],compvec[,c],deltavec[d])
+          X <- data$X
+          y <- data$y
+          truegroups <- data$truegroups
+          K <- data$K
+          N <- sum(compvec[,c])
+          kmeansgroups <- 0
+          count <- 0
+          #kmeansgroups <- Kmeans(X,y,N,G,K,maxit=150)
+          #while(kmeansgroups == 0&count<100){
+          #  try(kmeansgroups <- Kmeans(X,y,N,G,K,maxit=150),silent=TRUE)
+          #  count <- count+1
+          #}
+          #hierarchicalgroups <- hierarchical(X,y,N,G,K)
+          mixturegroups <- mixture(X,y,N,G=4,K)
+          count <- 1
+          while(max(mixturegroups)<4){
+            mixturegroups <- mixture(X,y,N,G=4,K)
+            count <- count+1
+            if(count%%500==0){
+              print("Failed")
+            }
+          }
+          assert(max(mixturegroups)==4)
+          #resultskmeans[a,b,c,d,i] <- accuracy(truegroups,kmeansgroups)
+          #resultshierarchical[a,b,c,d,i] <- accuracy(truegroups,hierarchicalgroups)
+          resultsmixture[a,b,c,d,i] <- accuracy(truegroups,mixturegroups)
+          #resultskmeanspergroup[a,b,c,d,i] <- accuracypergroup(truegroups,kmeansgroups)
+          #resultshierarchicalpergroup[a,b,c,d,i] <- accuracypergroup(truegroups,hierarchicalgroups)
+          resultsmixturepergroup[a,b,c,d,i] <- accuracypergroup(truegroups,mixturegroups)
+        }
+      }
+    }
+  }
+}
